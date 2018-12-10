@@ -1,6 +1,6 @@
 ///<reference path="../node_modules/grafana-sdk-mocks/app/headers/common.d.ts" />
-System.register(['lodash', 'app/core/utils/datemath', 'moment', './scanner'], function(exports_1) {
-    var lodash_1, dateMath, moment_1, scanner_1;
+System.register(['lodash', 'app/core/utils/datemath', 'moment', './scanner', 'app/core/config'], function(exports_1) {
+    var lodash_1, dateMath, moment_1, scanner_1, config_1;
     var durationSplitRegexp, SqlQuery;
     return {
         setters:[
@@ -15,6 +15,9 @@ System.register(['lodash', 'app/core/utils/datemath', 'moment', './scanner'], fu
             },
             function (scanner_1_1) {
                 scanner_1 = scanner_1_1;
+            },
+            function (config_1_1) {
+                config_1 = config_1_1;
             }],
         execute: function() {
             durationSplitRegexp = /(\d+)(ms|s|m|h|d|w|M|y)/;
@@ -96,6 +99,7 @@ System.register(['lodash', 'app/core/utils/datemath', 'moment', './scanner'], fu
                     }
                     this.target.rawQuery = query
                         .replace(/\$timeSeries/g, SqlQuery.getTimeSeries(dateTimeType))
+                        .replace(/\$naturalTimeSeries/g, SqlQuery.getNaturalTimeSeries(dateTimeType, from, to))
                         .replace(/\$timeFilter/g, timeFilter)
                         .replace(/\$table/g, this.target.database + '.' + this.target.table)
                         .replace(/\$from/g, from)
@@ -104,6 +108,13 @@ System.register(['lodash', 'app/core/utils/datemath', 'moment', './scanner'], fu
                         .replace(/\$dateTimeCol/g, this.target.dateTimeColDataType)
                         .replace(/\$interval/g, interval)
                         .replace(/\$adhoc/g, renderedAdHocCondition)
+                        .replace(/\$userName/g, config_1.default.bootData.user.name)
+                        .replace(/\$userEmail/g, config_1.default.bootData.user.email)
+                        .replace(/\$userLogin/g, config_1.default.bootData.user.login)
+                        .replace(/\$userId/g, config_1.default.bootData.user.id)
+                        .replace(/\$userOrgId/g, config_1.default.bootData.user.orgId)
+                        .replace(/\$userOrgName/g, config_1.default.bootData.user.orgName)
+                        .replace(/\$userOrgRole/g, config_1.default.bootData.user.orgRole)
                         .replace(/(?:\r\n|\r|\n)/g, ' ');
                     return this.target.rawQuery;
                 };
@@ -330,6 +341,39 @@ System.register(['lodash', 'app/core/utils/datemath', 'moment', './scanner'], fu
                         query += ' WHERE $timeFilter';
                     }
                     return query;
+                };
+                SqlQuery.getNaturalTimeSeries = function (dateTimeType, from, to) {
+                    var SOME_MINUTES = 60 * 20;
+                    var FEW_HOURS = 60 * 60 * 4;
+                    var SOME_HOURS = 60 * 60 * 24;
+                    var MANY_HOURS = 60 * 60 * 72;
+                    var FEW_DAYS = 60 * 60 * 24 * 15;
+                    var FEW_WEEKS = 60 * 60 * 24 * 21;
+                    var MANY_WEEKS = 60 * 60 * 24 * 7 * 15;
+                    var FEW_MONTHS = 60 * 60 * 24 * 30 * 10;
+                    var FEW_YEARS = 60 * 60 * 24 * 365 * 6;
+                    if (dateTimeType === 'DATETIME') {
+                        var duration = to - from;
+                        if (duration < SOME_MINUTES)
+                            return 'toUInt32(timestamp) * 1000';
+                        else if (duration < FEW_HOURS)
+                            return 'toUInt32(toStartOfMinute(timestamp)) * 1000';
+                        else if (duration < SOME_HOURS)
+                            return 'toUInt32(toStartOfFiveMinute(timestamp)) * 1000';
+                        else if (duration < MANY_HOURS)
+                            return 'toUInt32(toStartOfFifteenMinutes(timestamp)) * 1000';
+                        else if (duration < FEW_DAYS)
+                            return 'toUInt32(toStartOfHour(timestamp)) * 1000';
+                        else if (duration < MANY_WEEKS)
+                            return 'toUInt32(toStartOfDay(timestamp)) * 1000';
+                        else if (duration < FEW_MONTHS)
+                            return 'toUInt32(toDateTime(toMonday(timestamp))) * 1000';
+                        else if (duration < FEW_YEARS)
+                            return 'toUInt32(toDateTime(toStartOfMonth(timestamp))) * 1000';
+                        else
+                            return 'toUInt32(toDateTime(toStartOfQuarter(timestamp))) * 1000';
+                    }
+                    return '(intDiv($dateTimeCol, $interval) * $interval) * 1000';
                 };
                 SqlQuery.getTimeSeries = function (dateTimeType) {
                     if (dateTimeType === 'DATETIME') {
